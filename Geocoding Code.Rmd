@@ -1,0 +1,182 @@
+---
+title: "5205 Project"
+author: "Frederick Michael Tantowi"
+date: '2022-04-01'
+output: html_document
+---
+Importing Libraries
+```{r}
+#install.packages("devtools")
+#install_github('mhudecheck/revgeo')
+
+library(devtools)
+library(revgeo)
+library(dplyr)
+library(fastDummies)
+library(devtools)
+library(revgeo)
+library(ggmap)
+library(tigris)
+library(tmap)
+library(caTools)
+library(rgdal)
+library(sp)
+library(rgeos)
+
+```
+
+Reading files
+```{r}
+housing <- read.csv("housing_cleaned2.csv")
+arrests <- read.csv("arrest_cleaned2.csv")
+```
+
+Dummify
+```{r}
+arrest_dummied <- dummy_cols(arrests, select_column = c("OFNS_DESC", "LAW_CAT_CD", "ARREST_BORO", "AGE_GROUP", "PERP_SEX", "PERP_RACE"))
+write.csv(arrest_dummied,"Arrests_dummied.csv", row.names = FALSE)
+
+housing_dummied <- dummy_cols(housing, select_columns = c("Borough","Postcode", "Community.Board", "Reporting.Construction.Type",
+                                                          "Extended.Affordability.Only", "Prevailing.Wage.Status"))
+write.csv(arrest_dummied,"Housing_dummied.csv", row.names = FALSE)
+
+```
+
+Jenny's code
+```{r}
+###Merge###
+####################
+
+Complaint <- read.csv("~/Documents/Methods II/NYPD_Complaint_Data_Current__Year_To_Date.csv", 
+                      stringsAsFactors = TRUE)
+House <- read.csv("~/Documents/Methods II/Housing_New_York_Units_by_Building.csv", 
+                  stringsAsFactors = TRUE)
+Crime <- read.csv("~/Documents/Methods II/NYPD_Arrest_Data__Year_to_Date.csv", 
+                  stringsAsFactors = TRUE)
+
+Crime <- Crime %>% 
+  mutate(ARREST_BORO = case_when(as.character(Crime$ARREST_BORO) == "K" ~ "Brooklyn",
+                                 as.character(Crime$ARREST_BORO) == "Q" ~ "Queens",
+                                 as.character(Crime$ARREST_BORO) == "M" ~ "Manhattan",
+                                 as.character(Crime$ARREST_BORO) == "S" ~ "Staten Island",
+                                 as.character(Crime$ARREST_BORO) == "B" ~ "Bronx")) 
+Crime$ARREST_BORO <- as.factor(Crime$ARREST_BORO)
+
+levels(Complaint$BORO_NM)
+Complaint <- Complaint %>% 
+  mutate(BORO_NM = case_when(as.character(Complaint$BORO_NM) == "BROOKLYN" ~ "Brooklyn",
+                                 as.character(Complaint$BORO_NM) == "QUEENS" ~ "Queens",
+                                 as.character(Complaint$BORO_NM) == "MANHATTAN" ~ "Manhattan",
+                                 as.character(Complaint$BORO_NM) == "STATEN ISLAND" ~ "Staten Island",
+                                 as.character(Complaint$BORO_NM) == "BRONX" ~ "Bronx",
+                             as.character(Complaint$BORO_NM) == "" ~ "")) 
+Complaint$BORO_NM <- as.factor(Complaint$BORO_NM)
+
+Crime <- Crime %>% mutate(ARREST_DATE= mdy(ARREST_DATE),
+                          New_date = format_ISO8601(ARREST_DATE, precision = "ym"))
+
+House <- House %>% mutate(Project.Start.Date= mdy(Project.Start.Date),
+                          New_date = format_ISO8601(Project.Start.Date, precision = "ym"))
+
+Complaint <- Complaint %>% mutate(CMPLNT_FR_DT= mdy(CMPLNT_FR_DT),
+                          New_date = format_ISO8601(CMPLNT_FR_DT, precision = "ym"))
+
+head(House)
+head(Crime)
+head(Complaint)
+
+Joined <-
+  Crime %>% 
+  full_join(House, by = c('ARREST_BORO' = 'Borough', 'New_date' = 'New_date'))%>%
+  head()
+
+
+Total_Crime<- bind_rows(Complaint,Crime)
+```
+
+Reverse Geocode
+```{r}
+api_key <- "AIzaSyBNxwkB7-G8Z_98jo08VWghQ0kme493nQQ"
+
+todate <- read.csv("NYPD_Arrest_Data__Year_to_Date_.csv")
+coords <- todate[,17:18]
+
+#This one stopped working halfway
+#todate_reversed <- revgeo(longitude, latitude, provider = "google", API = api_key, item = "zip")
+
+#This took more than 18 hours for 2021 data alone. --> Estimate about 29 days to fully geocode 5 million rows of data
+#This one had to use a github package (a new updated version of revgeo) the rpubs version was faulty and did not
+todate_reversed <- revgeo(coords$Longitude, coords$Latitude, output = "frame", item = "zip")
+
+write.csv(todate_reversed,"zipcode_for_fmii.csv", row.names = FALSE)
+
+```
+
+```{r}
+
+#READING DATA - Arrested
+entireData_full <- read.csv("Arrest_data_combined.csv")
+sample = sample.split(entireData_full$Longitude, SplitRatio = .05)
+entireData = subset(entireData_full, sample == TRUE)
+test  = subset(entireData_full, sample == FALSE)
+#READING DATA - Housing
+housing <- read.csv("Housing_New_York_Units_by_Building.csv")
+housing <- filter(housing, !is.na(housing$Longitude))
+nyc = readOGR(dsn='nyc_shape')
+
+#SPLITTING ENTIRE ARREST DATA BY YEAR
+fulldata_2014 <- filter(entireData_full, grepl("2014", ARREST_DATE, fixed = TRUE))
+fulldata_2015 <- filter(entireData_full, grepl("2015", ARREST_DATE, fixed = TRUE))
+fulldata_2016 <- filter(entireData_full, grepl("2016", ARREST_DATE, fixed = TRUE))
+fulldata_2017 <- filter(entireData_full, grepl("2017", ARREST_DATE, fixed = TRUE))
+fulldata_2018 <- filter(entireData_full, grepl("2018", ARREST_DATE, fixed = TRUE))
+fulldata_2019 <- filter(entireData_full, grepl("2019", ARREST_DATE, fixed = TRUE))
+fulldata_2020 <- filter(entireData_full, grepl("2020", ARREST_DATE, fixed = TRUE))
+fulldata_2021 <- filter(entireData_full, grepl("2021", ARREST_DATE, fixed = TRUE))
+
+
+#SPLITTING ARRESTED BY YEAR
+data_2014 <- filter(entireData, grepl("2014", ARREST_DATE, fixed = TRUE))
+data_2015 <- filter(entireData, grepl("2015", ARREST_DATE, fixed = TRUE))
+data_2016 <- filter(entireData, grepl("2016", ARREST_DATE, fixed = TRUE))
+data_2017 <- filter(entireData, grepl("2017", ARREST_DATE, fixed = TRUE))
+data_2018 <- filter(entireData, grepl("2018", ARREST_DATE, fixed = TRUE))
+data_2019 <- filter(entireData, grepl("2019", ARREST_DATE, fixed = TRUE))
+data_2020 <- filter(entireData, grepl("2020", ARREST_DATE, fixed = TRUE))
+data_2021 <- filter(entireData, grepl("2021", ARREST_DATE, fixed = TRUE))
+
+
+#SPLITTING HOUSING BY YEAR
+haus_2014 <- filter(housing, grepl("2014", Project.Start.Date, fixed = TRUE))
+haus_2015 <- filter(housing, grepl("2015", Project.Start.Date, fixed = TRUE))
+haus_2016 <- filter(housing, grepl("2016", Project.Start.Date, fixed = TRUE))
+haus_2017 <- filter(housing, grepl("2017", Project.Start.Date, fixed = TRUE))
+haus_2018 <- filter(housing, grepl("2018", Project.Start.Date, fixed = TRUE))
+haus_2019 <- filter(housing, grepl("2019", Project.Start.Date, fixed = TRUE))
+haus_2020 <- filter(housing, grepl("2020", Project.Start.Date, fixed = TRUE))
+haus_2021 <- filter(housing, grepl("2021", Project.Start.Date, fixed = TRUE))
+
+
+######### COUNT
+fulldata_2014 %>% count(ARREST_BORO, sort = TRUE)
+haus_2014 %>% count(Borough, sort = TRUE)
+
+S#data_2020_zip <- revgeo(data_2020$Longitude, data_2020$Latitude, output = "frame", item = "zip")
+nyc = readOGR(dsn='nyc_shape')
+ny_tigris = tracts(state='NY', county = c('061', '081', '005','047','085'),cb = TRUE)
+
+data_sp = data_2021
+haus_sp = haus_2021
+coordinates(data_sp)=~Longitude+Latitude
+coordinates(haus_sp)=~Longitude+Latitude
+tm_shape(ny_tigris)+
+  tm_borders()+
+  tm_shape(data_sp)+
+  tm_dots(col = 'steelblue',size = 0.01)+
+  tm_shape(haus_sp)+
+  tm_dots(col = 'red', size = 0.05)
+```
+
+
+
+
